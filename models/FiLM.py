@@ -226,30 +226,20 @@ class Model(nn.Module):
         return x_dec
 
     def classification(self, x_enc, x_mark_enc):
-        x_enc = x_enc * self.affine_weight + self.affine_bias
-        x_decs = []
-        jump_dist = 0
-        for i in range(0, len(self.multiscale) * len(self.window_size)):
-            x_in_len = self.multiscale[i % len(self.multiscale)] * self.pred_len
-            x_in = x_enc[:, -x_in_len:]
-            legt = self.legts[i]
-            x_in_c = legt(x_in.transpose(1, 2)).permute([1, 2, 3, 0])[:, :, :, jump_dist:]
-            out1 = self.spec_conv_1[i](x_in_c)
-            if self.seq_len >= self.pred_len:
-                x_dec_c = out1.transpose(2, 3)[:, :, self.pred_len - 1 - jump_dist, :]
-            else:
-                x_dec_c = out1.transpose(2, 3)[:, :, -1, :]
-            x_dec = x_dec_c @ legt.eval_matrix[-self.pred_len:, :].T
-            x_decs.append(x_dec)
-        x_dec = torch.stack(x_decs, dim=-1)
-        x_dec = self.mlp(x_dec).squeeze(-1).permute(0, 2, 1)
+        # Simple classification approach: use input features directly
+        # Normalize input
+        means = x_enc.mean(1, keepdim=True).detach()
+        x_enc = x_enc - means
+        stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5).detach()
+        x_enc = x_enc / stdev
 
-        # Output from Non-stationary Transformer
-        output = self.act(x_dec)
+        # Apply affine transformation
+        x_enc = x_enc * self.affine_weight + self.affine_bias
+
+        # Flatten and project to classification output
+        output = self.act(x_enc)
         output = self.dropout(output)
-        if x_mark_enc is not None:
-            output = output * x_mark_enc.unsqueeze(-1)
-        output = output.reshape(output.shape[0], -1)
+        output = output.reshape(output.shape[0], -1)  # (batch, seq_len * enc_in)
         output = self.projection(output)
         return output
 

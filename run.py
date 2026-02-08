@@ -8,6 +8,12 @@ import random
 import numpy as np
 import wandb
 
+# Import early failure experiment class
+try:
+    from exp.exp_early_failure import Exp_EarlyFailure
+except ImportError:
+    Exp_EarlyFailure = None
+
 if __name__ == '__main__':
     fix_seed = 2021
     random.seed(fix_seed)
@@ -139,6 +145,51 @@ if __name__ == '__main__':
     # TimeXer
     parser.add_argument('--patch_len', type=int, default=16, help='patch length')
 
+    # Preprocessing pipeline
+    parser.add_argument('--imputation_method', type=str, default='linear',
+                        choices=['linear', 'spline', 'knn', 'mice', 'ffill', 'bfill', 'mean', 'median', 'zero'],
+                        help='Method for handling missing values')
+    parser.add_argument('--resampling_method', type=str, default=None,
+                        choices=['linear', 'cubic', 'nearest', 'subsample', 'average', None],
+                        help='Method for resampling time series (None for no resampling)')
+    parser.add_argument('--target_length', type=int, default=None,
+                        help='Target sequence length for resampling')
+    parser.add_argument('--normalization_method', type=str, default='standardization',
+                        choices=['standardization', 'minmax', 'robust', 'winsorized', 'per_channel',
+                                 'per_sample_std', 'per_sample_minmax', 'none'],
+                        help='Normalization method')
+
+    # Hyperparameter tuning
+    parser.add_argument('--tuning_mode', type=str, default=None,
+                        choices=['grid', 'random', None],
+                        help='Hyperparameter tuning mode (None for no tuning)')
+    parser.add_argument('--tuning_trials', type=int, default=50,
+                        help='Number of trials for random search')
+    parser.add_argument('--tuning_metric', type=str, default='val_accuracy',
+                        help='Metric to optimize during tuning')
+    parser.add_argument('--tuning_direction', type=str, default='maximize',
+                        choices=['maximize', 'minimize'],
+                        help='Direction to optimize tuning metric')
+
+    # Foundation model parameters
+    parser.add_argument('--chronos_size', type=str, default='small',
+                        choices=['tiny', 'mini', 'small', 'base', 'large'],
+                        help='CHRONOS model size')
+    parser.add_argument('--moirai_size', type=str, default='small',
+                        choices=['small', 'base', 'large'],
+                        help='MOIRAI model size')
+    parser.add_argument('--freeze_backbone', action='store_true', default=False,
+                        help='Freeze foundation model backbone during training')
+
+    # Early failure prediction
+    parser.add_argument('--failure_prediction_mode', type=str, default=None,
+                        choices=['classification', 'rul', 'hazard', None],
+                        help='Failure prediction mode (None for standard classification)')
+    parser.add_argument('--prediction_horizons', type=float, nargs='+', default=[0.1, 0.2, 0.3, 0.5],
+                        help='Prediction horizons for hazard mode')
+    parser.add_argument('--rul_threshold', type=float, default=None,
+                        help='RUL threshold for binary classification')
+
     args = parser.parse_args()
     if torch.cuda.is_available() and args.use_gpu:
         args.device = torch.device('cuda:{}'.format(args.gpu))
@@ -159,7 +210,14 @@ if __name__ == '__main__':
     print('Args in experiment:')
     print_args(args)
 
-    Exp = Exp_Classification
+    # Select experiment class based on task
+    if args.task_name == 'early_failure' or args.failure_prediction_mode is not None:
+        if Exp_EarlyFailure is None:
+            raise ImportError("Exp_EarlyFailure not available. Check exp/exp_early_failure.py")
+        Exp = Exp_EarlyFailure
+        print(f"Using Early Failure Prediction mode: {args.failure_prediction_mode}")
+    else:
+        Exp = Exp_Classification
 
     if args.is_training:
         for ii in range(args.itr):

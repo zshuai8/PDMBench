@@ -2,6 +2,12 @@ import os
 import numpy as np
 import pandas as pd
 import torch
+from typing import Optional, Union
+
+# Import extended preprocessing modules
+from data_provider.imputation import Imputer, impute_missing
+from data_provider.resampling import Resampler, resample_to_length
+from data_provider.normalization import ExtendedNormalizer
 
 
 def collate_fn(data, max_len=None):
@@ -58,22 +64,46 @@ def padding_mask(lengths, max_len=None):
 class Normalizer(object):
     """
     Normalizes dataframe across ALL contained rows (time steps). Different from per-sample normalization.
+
+    Extended to support robust, winsorized, and per-channel normalization methods.
     """
 
-    def __init__(self, norm_type='standardization', mean=None, std=None, min_val=None, max_val=None):
+    SUPPORTED_METHODS = [
+        'standardization', 'minmax', 'per_sample_std', 'per_sample_minmax',
+        'robust', 'winsorized', 'per_channel', 'none'
+    ]
+
+    def __init__(self, norm_type='standardization', mean=None, std=None, min_val=None, max_val=None,
+                 winsorize_limits=(5, 95)):
         """
         Args:
             norm_type: choose from:
                 "standardization", "minmax": normalizes dataframe across ALL contained rows (time steps)
                 "per_sample_std", "per_sample_minmax": normalizes each sample separately (i.e. across only its own rows)
+                "robust": robust normalization using median and IQR (resistant to outliers)
+                "winsorized": winsorized normalization with outlier clipping
+                "per_channel": per-channel/feature standardization
+                "none": no normalization
             mean, std, min_val, max_val: optional (num_feat,) Series of pre-computed values
+            winsorize_limits: tuple of (lower, upper) percentiles for winsorization
         """
+
+        if norm_type not in self.SUPPORTED_METHODS:
+            raise ValueError(f'Unknown normalization method: {norm_type}. '
+                           f'Supported methods: {self.SUPPORTED_METHODS}')
 
         self.norm_type = norm_type
         self.mean = mean
         self.std = std
         self.min_val = min_val
         self.max_val = max_val
+        self.median = None
+        self.iqr = None
+        self.q1 = None
+        self.q3 = None
+        self.winsorize_limits = winsorize_limits
+        self.winsorize_low = None
+        self.winsorize_high = None
 
     def normalize(self, df):
         """
@@ -96,15 +126,68 @@ class Normalizer(object):
 
         elif self.norm_type == "per_sample_std":
             grouped = df.groupby(by=df.index)
-            return (df - grouped.transform('mean')) / grouped.transform('std')
+            return (df - grouped.transform('mean')) / (grouped.transform('std') + np.finfo(float).eps)
 
         elif self.norm_type == "per_sample_minmax":
             grouped = df.groupby(by=df.index)
             min_vals = grouped.transform('min')
             return (df - min_vals) / (grouped.transform('max') - min_vals + np.finfo(float).eps)
 
+        elif self.norm_type == "robust":
+            if self.median is None:
+                self.median = df.median()
+                self.q1 = df.quantile(0.25)
+                self.q3 = df.quantile(0.75)
+                self.iqr = self.q3 - self.q1
+            return (df - self.median) / (self.iqr + np.finfo(float).eps)
+
+        elif self.norm_type == "winsorized":
+            if self.winsorize_low is None:
+                self.winsorize_low = df.quantile(self.winsorize_limits[0] / 100)
+                self.winsorize_high = df.quantile(self.winsorize_limits[1] / 100)
+            # Clip values
+            clipped = df.clip(lower=self.winsorize_low, upper=self.winsorize_high, axis=1)
+            # Standardize clipped values
+            if self.mean is None:
+                self.mean = clipped.mean()
+                self.std = clipped.std()
+            return (clipped - self.mean) / (self.std + np.finfo(float).eps)
+
+        elif self.norm_type == "per_channel":
+            # Same as standardization but with clearer naming
+            if self.mean is None:
+                self.mean = df.mean()
+                self.std = df.std()
+            return (df - self.mean) / (self.std + np.finfo(float).eps)
+
+        elif self.norm_type == "none":
+            return df
+
         else:
             raise (NameError(f'Normalize method "{self.norm_type}" not implemented'))
+
+    def inverse_normalize(self, df):
+        """
+        Inverse normalization to recover original scale.
+
+        Args:
+            df: normalized dataframe
+        Returns:
+            df: denormalized dataframe
+        """
+        if self.norm_type == "standardization" or self.norm_type == "per_channel":
+            return df * (self.std + np.finfo(float).eps) + self.mean
+        elif self.norm_type == "minmax":
+            return df * (self.max_val - self.min_val + np.finfo(float).eps) + self.min_val
+        elif self.norm_type == "robust":
+            return df * (self.iqr + np.finfo(float).eps) + self.median
+        elif self.norm_type == "winsorized":
+            return df * (self.std + np.finfo(float).eps) + self.mean
+        elif self.norm_type == "none":
+            return df
+        else:
+            # Cannot inverse per_sample normalizations without original values
+            return df
 
 
 def interpolate_missing(y):

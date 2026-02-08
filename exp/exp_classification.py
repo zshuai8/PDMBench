@@ -93,7 +93,12 @@ class Exp_Classification(Exp_Basic):
             self.model.train()
             start_time = time.time()
             # for i, (batch_x, label, padding_mask) in enumerate(train_loader):
-            for i, (batch_x, label) in enumerate(train_loader):
+            for i, batch_data in enumerate(train_loader):
+                # Handle both cases: with RUL (3 values) and without (2 values)
+                if len(batch_data) == 3:
+                    batch_x, label, _ = batch_data  # Ignore RUL for classification
+                else:
+                    batch_x, label = batch_data
                 model_optim.zero_grad()
 
                 batch_x = batch_x.float().to(self.device)
@@ -164,7 +169,12 @@ class Exp_Classification(Exp_Basic):
         self.model.eval()
         with torch.no_grad():
             # for i, (batch_x, label, padding_mask) in enumerate(vali_loader):
-            for i, (batch_x, label) in tqdm.tqdm(enumerate(vali_loader)):
+            for i, batch_data in tqdm.tqdm(enumerate(vali_loader)):
+                # Handle both cases: with RUL (3 values) and without (2 values)
+                if len(batch_data) == 3:
+                    batch_x, label, _ = batch_data
+                else:
+                    batch_x, label = batch_data
                 batch_x = batch_x.float().to(self.device)
                 # padding_mask = padding_mask.float().to(self.device)
                 label = label.to(self.device)
@@ -203,7 +213,12 @@ class Exp_Classification(Exp_Basic):
         self.model.eval()
         with torch.no_grad():
             # for i, (batch_x, label, padding_mask) in enumerate(test_loader):
-            for i, (batch_x, label) in tqdm.tqdm(enumerate(self.test_loader)):
+            for i, batch_data in tqdm.tqdm(enumerate(self.test_loader)):
+                # Handle both cases: with RUL (3 values) and without (2 values)
+                if len(batch_data) == 3:
+                    batch_x, label, _ = batch_data
+                else:
+                    batch_x, label = batch_data
                 batch_x = batch_x.float().to(self.device)
                 # padding_mask = padding_mask.float().to(self.device)
                 label = label.to(self.device)

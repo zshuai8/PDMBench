@@ -137,7 +137,8 @@ class Model(nn.Module):
         self.register_buffer('inv_timescales', inv_timescales)
 
         if self.task_name == 'classification':
-            self.projection = nn.Linear(self.configs.project_input_shape, configs.num_class)
+            # Use LazyLinear to compute input dimension dynamically on first forward pass
+            self.projection = nn.LazyLinear(configs.num_class)
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':

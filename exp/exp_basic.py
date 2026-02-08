@@ -3,9 +3,19 @@ import torch
 from models import Autoformer, Transformer, TimesNet, Nonstationary_Transformer, DLinear, FEDformer, \
     Informer, LightTS, Reformer, ETSformer, Pyraformer, PatchTST, MICN, Crossformer, FiLM, iTransformer, \
     Koopa, TiDE, FreTS, TimeMixer, TSMixer, SegRNN, MambaSimple, TemporalFusionTransformer, SCINet, PAttn, TimeXer, \
-    WPMixer, MultiPatchFormer, MLP
-import wandb
+    WPMixer, MultiPatchFormer, MLP, LSTM, SVM, XGB
 import time
+
+
+class DummyLogger:
+    """Dummy logger when WandB is not available or disabled."""
+    def log(self, *args, **kwargs):
+        pass
+    def init(self, *args, **kwargs):
+        pass
+    def finish(self, *args, **kwargs):
+        pass
+
 
 class Exp_Basic(object):
     def __init__(self, args):
@@ -40,27 +50,47 @@ class Exp_Basic(object):
             'TimeXer': TimeXer,
             'WPMixer': WPMixer,
             'MultiPatchFormer': MultiPatchFormer,
-            'MLP': MLP
+            'MLP': MLP,
+            'LSTM': LSTM,
+            'SVM': SVM,
+            'XGB': XGB,
+            'NT': Nonstationary_Transformer,  # Alias for Nonstationary_Transformer
         }
         if args.model == 'Mamba':
             print('Please make sure you have successfully installed mamba_ssm')
             from models import Mamba
             self.model_dict['Mamba'] = Mamba
 
+        if args.model == 'Chronos':
+            print('Loading CHRONOS foundation model. Install with: pip install chronos-forecasting')
+            from models import Chronos
+            self.model_dict['Chronos'] = Chronos
+
+        if args.model == 'Moirai':
+            print('Loading MOIRAI foundation model. Install with: pip install uni2ts')
+            from models import Moirai
+            self.model_dict['Moirai'] = Moirai
+
+        if args.model == 'LagLlama':
+            print('Loading Lag-Llama foundation model. Install with: pip install lag-llama')
+            from models import LagLlama
+            self.model_dict['LagLlama'] = LagLlama
+
+        if args.model == 'MOMENT':
+            print('Loading MOMENT foundation model. Install with: pip install momentfm')
+            from models import MOMENT
+            self.model_dict['MOMENT'] = MOMENT
+
+        if args.model == 'TimesFM':
+            print('Loading TimesFM foundation model. Install with: pip install timesfm')
+            from models import TimesFM
+            self.model_dict['TimesFM'] = TimesFM
+
         self.device = self._acquire_device()
         self.model = self._build_model().to(self.device)
-        
-        wandb.init(
-            project="PdMLibrary-{}".format(args.root_path.split("/")[-2]),
-            name="{}_{}".format(args.model, int(time.time())
-            ),
-            config={
-                "lr": args.learning_rate,
-                "epochs": args.train_epochs,
-            },
-        )
 
-        self.wandb = wandb
+        # Initialize logging (WandB optional)
+        self.wandb = self._init_logging()
 
     def _build_model(self):
         raise NotImplementedError
@@ -79,6 +109,34 @@ class Exp_Basic(object):
             device = torch.device('cpu')
             print('Use CPU')
         return device
+
+    def _init_logging(self):
+        """Initialize logging - WandB if available and enabled, otherwise dummy logger."""
+        use_wandb = getattr(self.args, 'use_wandb', False)
+        if use_wandb:
+            try:
+                import wandb
+                dataset_name = self.args.root_path.rstrip('/').split('/')[-1]
+                wandb.init(
+                    project=f"PDMBench-{dataset_name}",
+                    name=f"{self.args.model}_{int(time.time())}",
+                    config={
+                        "model": self.args.model,
+                        "learning_rate": self.args.learning_rate,
+                        "epochs": self.args.train_epochs,
+                        "batch_size": self.args.batch_size,
+                        "seq_len": self.args.seq_len,
+                    },
+                )
+                print("WandB logging enabled")
+                return wandb
+            except ImportError:
+                print("WandB not installed. Using local logging.")
+                return DummyLogger()
+            except Exception as e:
+                print(f"WandB initialization failed: {e}. Using local logging.")
+                return DummyLogger()
+        return DummyLogger()
 
     def _get_data(self):
         pass

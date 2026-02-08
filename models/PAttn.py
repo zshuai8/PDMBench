@@ -13,14 +13,14 @@ class Model(nn.Module):
         super().__init__()
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
-        self.patch_size = patch_len 
+        self.patch_size = patch_len
         self.stride = patch_len
         self.configs = configs
-        
+
         self.d_model = configs.d_model
-       
+
         self.patch_num = (configs.seq_len - self.patch_size) // self.stride + 2
-        self.padding_patch_layer = nn.ReplicationPad1d((0,  self.stride)) 
+        self.padding_patch_layer = nn.ReplicationPad1d((0,  self.stride))
         self.in_layer = nn.Linear(self.patch_size, self.d_model)
         self.encoder = Encoder(
             [
@@ -36,17 +36,14 @@ class Model(nn.Module):
             ],
             norm_layer=nn.LayerNorm(configs.d_model)
         )
-        # if configs.root_path.split("/")[-2] != "13":
-        #     self.out_layer = nn.Linear(self.d_model * self.patch_num, configs.pred_len)
-        # else:
-        self.out_layer = nn.Linear(self.configs.project_input_shape, configs.pred_len)
+
+        # For forecasting: output layer
+        self.out_layer = nn.Linear(self.d_model * self.patch_num, configs.pred_len)
 
         self.task_name = configs.task_name
         if configs.task_name == 'classification':
-            # if self.configs.root_path.split("/")[-2] != "13":
-            #     self.projection = nn.Linear(self.d_model * self.patch_num, configs.num_class)
-            # else:
-            self.projection = nn.Linear(self.configs.project_input_shape, configs.num_class)
+            # Use LazyLinear to compute input dimension dynamically on first forward pass
+            self.projection = nn.LazyLinear(configs.num_class)
             
             
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
@@ -55,7 +52,7 @@ class Model(nn.Module):
         stdev = torch.sqrt(
             torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
         x_enc /= stdev
-        
+
         B, _, C = x_enc.shape
         x_enc = x_enc.permute(0, 2, 1)
         x_enc = self.padding_patch_layer(x_enc)
@@ -64,18 +61,18 @@ class Model(nn.Module):
         enc_out =  rearrange(enc_out, 'b c m l -> (b c) m l')
         dec_out, _ = self.encoder(enc_out)
         dec_out =  rearrange(dec_out, '(b c) m l -> b c (m l)' , b=B , c=C)
-        
-        dec_out1 = self.out_layer(dec_out)
-        dec_out1 = dec_out1.permute(0, 2, 1)
-        
-        dec_out1 = dec_out1 * \
-                  (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-        dec_out1 = dec_out1 + \
-                  (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-        
+
+        # For classification, skip out_layer and use projection directly
         if self.task_name == 'classification':
             dec_out1 = dec_out.reshape(dec_out.shape[0], -1)
-
             dec_out1 = self.projection(dec_out1)  # (batch_size, num_classes)
+        else:
+            dec_out1 = self.out_layer(dec_out)
+            dec_out1 = dec_out1.permute(0, 2, 1)
+
+            dec_out1 = dec_out1 * \
+                      (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
+            dec_out1 = dec_out1 + \
+                      (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
 
         return dec_out1

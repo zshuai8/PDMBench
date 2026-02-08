@@ -396,28 +396,15 @@ class Model(nn.Module):
         return dec_out_list
 
     def classification(self, x_enc, x_mark_enc):
-        x_enc, _ = self.__multi_scale_process_inputs(x_enc, None)
-        enc_out = self.enc_embedding(x_enc, None)
-        # x_list = x_enc
+        x_enc_list, _ = self.__multi_scale_process_inputs(x_enc, None)
+        # Use the first (original) scale for classification
+        x_enc_orig = x_enc_list[0] if isinstance(x_enc_list, list) else x_enc_list
+        enc_out = self.enc_embedding(x_enc_orig, None)
 
-        # # embedding
-        # enc_out_list = []
-        # for x in x_list:
-        #     enc_out = self.enc_embedding(x, None)  # [B,T,C]
-        #     enc_out_list.append(enc_out)
-
-        # # MultiScale-CrissCrossAttention  as encoder for past
-        # for i in range(self.layer):
-        #     enc_out_list = self.pdm_blocks[i](enc_out_list)
-
-        # enc_out = enc_out_list[0]
         # Output
         # the output transformer encoder/decoder embeddings don't include non-linearity
         output = self.act(enc_out)
         output = self.dropout(output)
-        # zero-out padding embeddings
-        if x_mark_enc is not None:
-            output = output * x_mark_enc.unsqueeze(-1)
         # (batch_size, seq_length * d_model)
         output = output.reshape(output.shape[0], -1)
         output = self.projection(output)  # (batch_size, num_classes)

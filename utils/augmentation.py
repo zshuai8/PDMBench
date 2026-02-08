@@ -329,6 +329,242 @@ def discriminative_guided_warp_shape(x, labels, batch_size=6, slope_constraint="
     return discriminative_guided_warp(x, labels, batch_size, slope_constraint, use_window, dtw_type="shape")
 
 
+# =============================================================================
+# NEW AUGMENTATION METHODS
+# =============================================================================
+
+def mixup(x, y, alpha=0.2):
+    """
+    Mixup augmentation: interpolate between random pairs of samples.
+
+    Reference: https://arxiv.org/abs/1710.09412
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        y: Labels (one-hot or class indices)
+        alpha: Beta distribution parameter for mixing ratio
+
+    Returns:
+        Mixed samples and mixed labels
+    """
+    if alpha > 0:
+        lam = np.random.beta(alpha, alpha, size=x.shape[0])
+    else:
+        lam = np.ones(x.shape[0])
+
+    # Random permutation for pairing
+    indices = np.random.permutation(x.shape[0])
+
+    # Reshape lambda for broadcasting
+    lam = lam.reshape(-1, 1, 1)
+
+    # Mix samples
+    x_mixed = lam * x + (1 - lam) * x[indices]
+
+    return x_mixed
+
+
+def cutout(x, n_holes=1, length_ratio=0.1):
+    """
+    Cutout augmentation: zero out random segments of the time series.
+
+    Reference: https://arxiv.org/abs/1708.04552
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        n_holes: Number of segments to cut out
+        length_ratio: Ratio of sequence length to cut out per hole
+
+    Returns:
+        Augmented samples with cutout regions
+    """
+    x_aug = x.copy()
+    seq_len = x.shape[1]
+    hole_length = int(seq_len * length_ratio)
+
+    for i in range(x.shape[0]):
+        for _ in range(n_holes):
+            # Random start position
+            start = np.random.randint(0, seq_len - hole_length + 1)
+            end = start + hole_length
+
+            # Zero out the segment
+            x_aug[i, start:end, :] = 0
+
+    return x_aug
+
+
+def frequency_masking(x, max_freq_mask=0.2, n_masks=1):
+    """
+    Frequency masking: mask random frequency bands in the FFT domain.
+
+    Similar to SpecAugment for audio: https://arxiv.org/abs/1904.08779
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        max_freq_mask: Maximum fraction of frequencies to mask
+        n_masks: Number of frequency masks to apply
+
+    Returns:
+        Augmented samples with frequency bands masked
+    """
+    x_aug = np.zeros_like(x)
+
+    for i in range(x.shape[0]):
+        for j in range(x.shape[2]):
+            # FFT
+            fft = np.fft.rfft(x[i, :, j])
+            n_freqs = len(fft)
+
+            # Apply masks
+            for _ in range(n_masks):
+                mask_width = int(n_freqs * max_freq_mask * np.random.random())
+                mask_start = np.random.randint(0, max(1, n_freqs - mask_width))
+                fft[mask_start:mask_start + mask_width] = 0
+
+            # Inverse FFT
+            x_aug[i, :, j] = np.fft.irfft(fft, n=x.shape[1])
+
+    return x_aug
+
+
+def channel_dropout(x, dropout_prob=0.1):
+    """
+    Channel dropout: randomly zero out entire channels (features).
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        dropout_prob: Probability of dropping each channel
+
+    Returns:
+        Augmented samples with some channels zeroed out
+    """
+    x_aug = x.copy()
+    n_features = x.shape[2]
+
+    for i in range(x.shape[0]):
+        # Create dropout mask for this sample
+        mask = np.random.random(n_features) > dropout_prob
+        # Ensure at least one channel is kept
+        if not mask.any():
+            mask[np.random.randint(n_features)] = True
+        # Apply mask
+        x_aug[i, :, ~mask] = 0
+
+    return x_aug
+
+
+def gaussian_noise(x, snr_db=20):
+    """
+    Add Gaussian noise with specified signal-to-noise ratio.
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        snr_db: Signal-to-noise ratio in decibels
+
+    Returns:
+        Augmented samples with added noise
+    """
+    x_aug = x.copy()
+
+    for i in range(x.shape[0]):
+        for j in range(x.shape[2]):
+            signal = x[i, :, j]
+            signal_power = np.mean(signal ** 2)
+
+            # Calculate noise power from SNR
+            snr_linear = 10 ** (snr_db / 10)
+            noise_power = signal_power / snr_linear
+
+            # Generate noise
+            noise = np.sqrt(noise_power) * np.random.randn(len(signal))
+            x_aug[i, :, j] = signal + noise
+
+    return x_aug
+
+
+def time_masking(x, max_time_mask=0.1, n_masks=1):
+    """
+    Time masking: mask random time segments (similar to cutout but with mean value).
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        max_time_mask: Maximum fraction of time steps to mask
+        n_masks: Number of time masks to apply
+
+    Returns:
+        Augmented samples with time segments masked
+    """
+    x_aug = x.copy()
+    seq_len = x.shape[1]
+
+    for i in range(x.shape[0]):
+        mean_val = np.mean(x[i])
+
+        for _ in range(n_masks):
+            mask_width = int(seq_len * max_time_mask * np.random.random())
+            mask_start = np.random.randint(0, max(1, seq_len - mask_width))
+            x_aug[i, mask_start:mask_start + mask_width, :] = mean_val
+
+    return x_aug
+
+
+def random_crop_resize(x, crop_ratio_range=(0.8, 1.0)):
+    """
+    Random crop and resize: crop a random portion and resize to original length.
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        crop_ratio_range: Range of crop ratios (min, max)
+
+    Returns:
+        Augmented samples
+    """
+    x_aug = np.zeros_like(x)
+    seq_len = x.shape[1]
+
+    for i in range(x.shape[0]):
+        # Random crop ratio
+        crop_ratio = np.random.uniform(*crop_ratio_range)
+        crop_len = int(seq_len * crop_ratio)
+
+        # Random start position
+        max_start = seq_len - crop_len
+        start = np.random.randint(0, max_start + 1)
+
+        # Crop
+        cropped = x[i, start:start + crop_len, :]
+
+        # Resize to original length using interpolation
+        for j in range(x.shape[2]):
+            x_aug[i, :, j] = np.interp(
+                np.linspace(0, crop_len - 1, seq_len),
+                np.arange(crop_len),
+                cropped[:, j]
+            )
+
+    return x_aug
+
+
+def flip(x, axis='time'):
+    """
+    Flip the time series along specified axis.
+
+    Args:
+        x: Input data of shape (batch_size, seq_len, n_features)
+        axis: 'time' to flip along time axis, 'amplitude' to flip sign
+
+    Returns:
+        Flipped samples
+    """
+    if axis == 'time':
+        return x[:, ::-1, :]
+    elif axis == 'amplitude':
+        return -x
+    else:
+        raise ValueError(f"Unknown axis: {axis}")
+
+
 def run_augmentation(x, y, args):
     print("Augmenting %s"%args.data)
     np.random.seed(args.seed)

@@ -93,11 +93,14 @@ class Model(nn.Module):
         if self.task_name == 'imputation' or self.task_name == 'anomaly_detection':
             self.projection = nn.Linear(
                 configs.d_model, configs.c_out, bias=True)
-        if self.task_name == 'classification':
+        if self.task_name == 'classification' or self.task_name == 'early_failure':
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(
                 configs.d_model * configs.seq_len, configs.num_class)
+            # Add predict_linear for extending sequence in classification
+            self.predict_linear = nn.Linear(
+                self.seq_len, self.pred_len + self.seq_len)
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
@@ -182,9 +185,23 @@ class Model(nn.Module):
     def classification(self, x_enc, x_mark_enc):
         # embedding
         enc_out = self.enc_embedding(x_enc, None)  # [B,T,C]
+
+        # For classification, extend sequence to seq_len + pred_len to match TimesBlock expectations
+        # Use predict_linear if available, otherwise pad with zeros
+        if hasattr(self, 'predict_linear'):
+            enc_out = self.predict_linear(enc_out.permute(0, 2, 1)).permute(0, 2, 1)
+        else:
+            # Pad to seq_len + pred_len
+            B, T, C = enc_out.shape
+            padding = torch.zeros([B, self.pred_len, C], device=enc_out.device)
+            enc_out = torch.cat([enc_out, padding], dim=1)
+
         # TimesNet
         for i in range(self.layer):
             enc_out = self.layer_norm(self.model[i](enc_out))
+
+        # Take only the first seq_len positions for classification
+        enc_out = enc_out[:, :self.seq_len, :]
 
         # Output
         # the output transformer encoder/decoder embeddings don't include non-linearity
@@ -209,7 +226,7 @@ class Model(nn.Module):
         if self.task_name == 'anomaly_detection':
             dec_out = self.anomaly_detection(x_enc)
             return dec_out  # [B, L, D]
-        if self.task_name == 'classification':
+        if self.task_name == 'classification' or self.task_name == 'early_failure':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
         return None

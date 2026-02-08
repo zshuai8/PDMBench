@@ -83,8 +83,19 @@ class Model(nn.Module):
             self.decoders = nn.Sequential(*([ ResBlock(self.hidden_dim, self.res_hidden, self.hidden_dim, dropout, bias)]*(self.decoder_num-1)),ResBlock(self.hidden_dim, self.res_hidden, self.decode_dim * self.seq_len, dropout, bias))
             self.temporalDecoder = ResBlock(self.decode_dim + self.feature_encode_dim, self.temporalDecoderHidden, 1, dropout, bias)
             self.residual_proj = nn.Linear(self.seq_len, self.seq_len, bias=bias)
-            
-        
+        if self.task_name == 'classification':
+            # For classification, we use a simpler encoder without feature encoding
+            self.cls_encoder = nn.Sequential(
+                nn.Linear(self.seq_len * configs.enc_in, self.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(self.hidden_dim, self.hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+            )
+            self.cls_projection = nn.Linear(self.hidden_dim, configs.num_class)
+
+
     def forecast(self, x_enc, x_mark_enc, x_dec, batch_y_mark):
         # Normalization
         means = x_enc.mean(1, keepdim=True).detach()
@@ -136,8 +147,17 @@ class Model(nn.Module):
         if self.task_name == 'anomaly_detection':
             raise NotImplementedError("Task anomaly_detection for Tide is temporarily not supported")
         if self.task_name == 'classification':
-            raise NotImplementedError("Task classification for Tide is temporarily not supported")
+            dec_out = self.classification(x_enc, x_mark_enc)
+            return dec_out
         return None
+
+    def classification(self, x_enc, x_mark_enc):
+        # x_enc: [B, L, C]
+        B, L, C = x_enc.shape
+        x_flat = x_enc.reshape(B, -1)  # [B, L*C]
+        hidden = self.cls_encoder(x_flat)  # [B, hidden_dim]
+        output = self.cls_projection(hidden)  # [B, num_class]
+        return output
     
     
 

@@ -8,6 +8,16 @@ data_dict = {
 
 
 def data_provider(args, flag):
+    """
+    Data provider factory function.
+
+    Args:
+        args: Argument namespace with data configuration
+        flag: 'TRAIN', 'VAL', or 'TEST'
+
+    Returns:
+        Tuple of (dataset, dataloader)
+    """
     Data = data_dict[args.data]
     timeenc = 0 if args.embed != 'timeF' else 1
 
@@ -31,7 +41,7 @@ def data_provider(args, flag):
             num_workers=args.num_workers,
             drop_last=drop_last)
         return data_set, data_loader
-    elif args.task_name == 'classification':
+    elif args.task_name == 'classification' or args.task_name == 'early_failure':
         data_set = Data(
             args = args,
             root_path=args.root_path,
@@ -39,15 +49,16 @@ def data_provider(args, flag):
             flag=flag,
         )
 
-        data_loader = DataLoader(
-            data_set,
-            batch_size=batch_size,
-            shuffle=shuffle_flag,
-            num_workers=args.num_workers,
-            drop_last=drop_last,
-            prefetch_factor=2
-            # collate_fn=lambda x: collate_fn(x, max_len=args.seq_len)
-        )
+        # prefetch_factor requires num_workers > 0
+        loader_kwargs = {
+            'batch_size': batch_size,
+            'shuffle': shuffle_flag,
+            'num_workers': args.num_workers,
+            'drop_last': drop_last,
+        }
+        if args.num_workers > 0:
+            loader_kwargs['prefetch_factor'] = 2
+        data_loader = DataLoader(data_set, **loader_kwargs)
         return data_set, data_loader
     else:
         data_set = Data(

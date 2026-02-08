@@ -78,12 +78,8 @@ class Model(nn.Module):
         elif self.task_name == 'classification':
             self.flatten = nn.Flatten(start_dim=-2)
             self.dropout = nn.Dropout(configs.dropout)
-            
-            # if self.configs.root_path.split("/")[-2] == "13":
-            self.projection = nn.Linear(configs.project_input_shape, configs.num_class)
-            # else:
-            #     self.projection = nn.Linear(
-            #         self.head_nf * configs.enc_in, configs.num_class)
+            # Use LazyLinear to compute input dimension dynamically on first forward pass
+            self.projection = nn.LazyLinear(configs.num_class)
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer

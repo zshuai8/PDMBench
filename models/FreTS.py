@@ -42,11 +42,12 @@ class Model(nn.Module):
             nn.Linear(self.hidden_size, self.pred_len)
         )
 
-        if self.task_name == 'classification':
+        if self.task_name == 'classification' or self.task_name == 'early_failure':
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
+            # FreTS uses embed_size (128) not d_model, and includes all channels
             self.projection = nn.Linear(
-                configs.d_model * configs.seq_len, configs.num_class)
+                configs.enc_in * configs.seq_len * self.embed_size, configs.num_class)
 
     # dimension extension
     def tokenEmb(self, x):
@@ -149,7 +150,7 @@ class Model(nn.Module):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
             dec_out = self.forecast(x_enc)
             return dec_out[:, -self.pred_len:, :]  # [B, L, D]
-        elif self.task_name == 'classification':
+        elif self.task_name == 'classification' or self.task_name == 'early_failure':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
         else:

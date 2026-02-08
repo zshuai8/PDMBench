@@ -1,0 +1,174 @@
+# PDMBench Default Configuration
+# This file contains default settings for all experiments
+
+# =============================================================================
+# Basic Configuration
+# =============================================================================
+basic:
+  task_name: classification
+  is_training: 1
+  model_id: default
+  seed: 2021
+
+# =============================================================================
+# Data Configuration
+# =============================================================================
+data:
+  data: PDM
+  root_path: ./data/
+  file_list:
+    - PdM_TRAIN.npz
+    - PdM_VAL.npz
+    - PdM_TEST.npz
+  features: M  # M: multivariate, S: univariate
+  freq: h  # s: secondly, t: minutely, h: hourly, d: daily
+
+# =============================================================================
+# Preprocessing Configuration
+# =============================================================================
+preprocessing:
+  imputation_method: linear  # linear, spline, knn, mice, ffill, bfill, mean, median, zero
+  resampling_method: null  # linear, cubic, nearest, subsample, average, null (no resampling)
+  target_length: null  # Target sequence length for resampling
+  normalization_method: standardization  # standardization, minmax, robust, winsorized, per_channel, per_sample_std, per_sample_minmax, none
+
+# =============================================================================
+# Model Architecture Configuration
+# =============================================================================
+model:
+  # General
+  model: TimesNet
+  enc_in: 7
+  dec_in: 7
+  c_out: 7
+  d_model: 512
+  n_heads: 8
+  e_layers: 2
+  d_layers: 1
+  d_ff: 2048
+  dropout: 0.1
+  embed: timeF  # timeF, fixed, learned
+  activation: gelu
+  use_norm: 1
+
+  # Sequence lengths
+  seq_len: 96
+  label_len: 48
+  pred_len: 96
+
+  # Model-specific parameters
+  factor: 1  # Attention factor
+  distil: true  # Use distilling in encoder
+  moving_avg: 25  # Window size for moving average
+  top_k: 5  # For TimesBlock
+  num_kernels: 6  # For Inception
+
+  # Mamba-specific
+  expand: 2
+  d_conv: 4
+
+  # PatchTST/TimeXer specific
+  patch_len: 16
+
+  # SegRNN specific
+  seg_len: 96
+
+  # Channel independence
+  channel_independence: 1
+
+  # Decomposition
+  decomp_method: moving_avg  # moving_avg, dft_decomp
+
+  # Down sampling
+  down_sampling_layers: 0
+  down_sampling_window: 1
+  down_sampling_method: null  # avg, max, conv
+
+  # De-stationary projector
+  p_hidden_dims: [128, 128]
+  p_hidden_layers: 2
+
+  # Foundation model specific
+  chronos_size: small  # tiny, mini, small, base, large
+  moirai_size: small  # small, base, large
+  freeze_backbone: false
+
+# =============================================================================
+# Training Configuration
+# =============================================================================
+training:
+  train_epochs: 10
+  batch_size: 1024
+  learning_rate: 0.0001
+  patience: 3
+  loss: MSE
+  lradj: type1  # type1, type2, type3, TST, constant
+  use_amp: false
+
+  # Optimization
+  num_workers: 16
+  itr: 1  # Number of experiment iterations
+
+# =============================================================================
+# GPU Configuration
+# =============================================================================
+gpu:
+  use_gpu: true
+  gpu: 0
+  gpu_type: cuda  # cuda, mps
+  use_multi_gpu: false
+  devices: "0,1,2,3"
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+logging:
+  use_wandb: false
+  checkpoints: ./checkpoints/
+
+# =============================================================================
+# Augmentation Configuration
+# =============================================================================
+augmentation:
+  augmentation_ratio: 0
+  jitter: false
+  scaling: false
+  permutation: false
+  randompermutation: false
+  magwarp: false
+  timewarp: false
+  windowslice: false
+  windowwarp: false
+  rotation: false
+  spawner: false
+  dtwwarp: false
+  shapedtwwarp: false
+  wdba: false
+  discdtw: false
+  discsdtw: false
+
+# =============================================================================
+# Hyperparameter Tuning Configuration
+# =============================================================================
+tuning:
+  tuning_mode: null  # grid, random, null (no tuning)
+  tuning_trials: 20  # Number of trials for random search
+  tuning_metric: val_accuracy  # Metric to optimize
+  tuning_direction: maximize  # maximize, minimize
+  tuning_cv_folds: null  # Cross-validation folds (null for no CV)
+
+# =============================================================================
+# Early Failure Prediction Configuration
+# =============================================================================
+early_failure:
+  failure_prediction_mode: null  # classification, rul, hazard, null
+  prediction_horizons: [10, 20, 50, 100]  # Prediction horizons for hazard mode
+  rul_threshold: null  # Threshold for binary classification from RUL
+  lead_time_threshold: 0.5  # Probability threshold for lead time calculation
+
+# =============================================================================
+# Metrics Configuration
+# =============================================================================
+metrics:
+  use_dtw: false
+  compute_calibration: true  # ECE, NLL, Brier scores

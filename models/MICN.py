@@ -120,10 +120,13 @@ class Model(nn.Module):
         for ii in conv_kernel:
             if ii % 2 == 0:  # the kernel of decomposition operation must be odd
                 decomp_kernel.append(ii + 1)
-                isometric_kernel.append((configs.seq_len + configs.pred_len + ii) // ii)
             else:
                 decomp_kernel.append(ii)
-                isometric_kernel.append((configs.seq_len + configs.pred_len + ii - 1) // ii)
+            # Calculate downsampled size after conv1d with kernel=ii, stride=ii, padding=ii//2
+            # Output = floor((seq_len + 2*(ii//2) - ii) / ii) + 1
+            downsampled_size = (configs.seq_len + 2 * (ii // 2) - ii) // ii + 1
+            # isometric kernel should match downsampled size for proper residual connection
+            isometric_kernel.append(max(1, downsampled_size))
 
         self.task_name = configs.task_name
         self.pred_len = configs.pred_len
@@ -151,7 +154,7 @@ class Model(nn.Module):
             self.projection = nn.Linear(configs.d_model, configs.c_out, bias=True)
         if self.task_name == 'anomaly_detection':
             self.projection = nn.Linear(configs.d_model, configs.c_out, bias=True)
-        if self.task_name == 'classification':
+        if self.task_name == 'classification' or self.task_name == 'early_failure':
             self.act = F.gelu
             self.dropout = nn.Dropout(configs.dropout)
             self.projection = nn.Linear(configs.c_out * configs.seq_len, configs.num_class)
@@ -217,7 +220,7 @@ class Model(nn.Module):
         if self.task_name == 'anomaly_detection':
             dec_out = self.anomaly_detection(x_enc)
             return dec_out  # [B, L, D]
-        if self.task_name == 'classification':
+        if self.task_name == 'classification' or self.task_name == 'early_failure':
             dec_out = self.classification(x_enc, x_mark_enc)
             return dec_out  # [B, N]
         return None

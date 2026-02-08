@@ -1,0 +1,156 @@
+{
+    "01": {
+        "name": "Paderborn",
+        "description": "Paderborn University Bearing Dataset - Comprehensive bearing fault dataset with multiple sensor measurements",
+        "features": ["vibration", "temperature", "speed"],
+        "fault_types": ["normal", "inner_race", "outer_race", "cage"],
+        "sampling_rate": 64000,
+        "duration": 4,
+        "channels": 3,
+        "design_target": "Fault diagnosis",
+        "property": "Multiple sensors"
+    },
+    "02": {
+        "name": "HUST",
+        "description": "Huazhong University of Science and Technology Bearing Dataset - Vibration and temperature data for fault diagnosis",
+        "features": ["vibration", "temperature"],
+        "fault_types": ["normal", "inner_race", "outer_race", "ball"],
+        "sampling_rate": 51200,
+        "duration": 10,
+        "channels": 2,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    },
+    "03": {
+        "name": "IMS",
+        "description": "Intelligent Maintenance Systems Bearing Dataset - Long-term bearing run-to-failure data for RUL prediction",
+        "features": ["vibration"],
+        "fault_types": ["normal", "failure"],
+        "sampling_rate": 20480,
+        "duration": 24,
+        "channels": 1,
+        "design_target": "RUL prediction",
+        "property": "Vibration"
+    },
+    "04": {
+        "name": "CWRU",
+        "description": "Case Western Reserve University Bearing Dataset - A comprehensive bearing fault dataset with various fault types and operating conditions",
+        "features": ["vibration"],
+        "fault_types": ["normal", "inner_race", "outer_race", "ball"],
+        "sampling_rate": 12000,
+        "duration": 10,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    },
+    "05": {
+        "name": "XJTU",
+        "description": "Xi'an Jiaotong University Bearing Dataset - Dataset for both RUL prediction and fault diagnosis with accelerated degradation tests",
+        "features": ["vibration"],
+        "fault_types": ["normal", "inner_race", "outer_race", "cage"],
+        "sampling_rate": 25600,
+        "duration": 8,
+        "channels": 1,
+        "design_target": "RUL prediction & Fault diagnosis",
+        "property": "Vibration"
+    },
+    "06": {
+        "name": "MFPT",
+        "description": "Mechanical Fault Prevention Technology Bearing Dataset - High-frequency vibration data for fault diagnosis",
+        "features": ["vibration"],
+        "fault_types": ["normal", "inner_race", "outer_race", "ball"],
+        "sampling_rate": 97600,
+        "duration": 2,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    },
+    "07": {
+        "name": "FEMTO",
+        "description": "FEMTO-ST Institute Bearing Dataset - Dataset for RUL prediction with multiple sensor measurements",
+        "features": ["vibration", "temperature", "speed"],
+        "fault_types": ["normal", "failure"],
+        "sampling_rate": 25600,
+        "duration": 6,
+        "channels": 3,
+        "design_target": "RUL prediction",
+        "property": "Multiple sensors"
+    },
+    "09": {
+        "name": "MAFAULDA",
+        "description": "Machinery Fault Database - Comprehensive dataset with multiple sensor measurements for various fault types",
+        "features": ["vibration", "current", "temperature", "speed"],
+        "fault_types": ["normal", "bearing", "rotor", "stator", "gear"],
+        "sampling_rate": 51200,
+        "duration": 12,
+        "channels": 4,
+        "design_target": "Fault diagnosis",
+        "property": "Multiple sensors"
+    },
+    "12": {
+        "name": "Mendeley",
+        "description": "Mendeley Bearing Dataset - Vibration data for bearing fault diagnosis",
+        "features": ["vibration"],
+        "fault_types": ["normal", "inner_race", "outer_race", "ball"],
+        "sampling_rate": 9600,
+        "duration": 3,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    },
+    "13": {
+        "name": "Planetary",
+        "description": "Planetary Gearbox Dataset - Vibration data for gearbox fault diagnosis",
+        "features": ["vibration"],
+        "fault_types": ["normal", "sun_gear", "planet_gear", "ring_gear"],
+        "sampling_rate": 48000,
+        "duration": 6,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    },
+    "16": {
+        "name": "Azure",
+        "description": "Microsoft Azure Predictive Maintenance Dataset - Telemetry and log data for RUL prediction",
+        "features": ["telemetry", "errors", "maintenance", "machines"],
+        "fault_types": ["normal", "failure"],
+        "sampling_rate": 1,
+        "duration": 365,
+        "channels": 4,
+        "design_target": "RUL prediction",
+        "property": "Telemetry, Logs"
+    },
+    "17": {
+        "name": "Electric Motor Vibrations",
+        "description": "Electric Motor Fault Dataset - Multiple sensor measurements for motor fault diagnosis",
+        "features": ["current", "vibration", "temperature", "speed"],
+        "fault_types": ["normal", "bearing", "rotor", "stator"],
+        "sampling_rate": 42000,
+        "duration": 5,
+        "channels": 4,
+        "design_target": "Fault diagnosis",
+        "property": "Multiple sensors"
+    },
+    "18": {
+        "name": "Rotor Broken Bar",
+        "description": "Rotor Broken Bar Dataset - Current measurements for rotor fault diagnosis",
+        "features": ["current"],
+        "fault_types": ["normal", "broken_bar"],
+        "sampling_rate": 50000,
+        "duration": 3,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Current"
+    },
+    "19": {
+        "name": "Gear Box UoC",
+        "description": "University of Connecticut Gearbox Dataset - Vibration data for gearbox fault diagnosis",
+        "features": ["vibration"],
+        "fault_types": ["normal", "gear_wear", "gear_break"],
+        "sampling_rate": 20000,
+        "duration": 4,
+        "channels": 1,
+        "design_target": "Fault diagnosis",
+        "property": "Vibration"
+    }
+}
