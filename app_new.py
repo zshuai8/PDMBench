@@ -4559,11 +4559,11 @@ sys.path.append('/path/to/PDMBench')
 
         st.markdown("### Quick Start Example")
         st.code('''
-from pdm_framework import PDMDataset, Trainer, Evaluator
+from pdm_framework import PDMDataset, Trainer, Evaluator, TrainerConfig
 from pdm_framework.models import SimpleLSTM
 
-# 1. Load a dataset
-dataset = PDMDataset('01')  # Paderborn bearing dataset
+# 1. Load a dataset by name
+dataset = PDMDataset('Paderborn')  # Paderborn University Bearing Dataset
 print(dataset)  # Shows: samples, classes, seq_len, features
 
 # 2. Get data loaders
@@ -4573,12 +4573,15 @@ train_loader, val_loader, test_loader = dataset.get_loaders(batch_size=32)
 model = SimpleLSTM(
     seq_len=dataset.seq_len,
     num_features=dataset.num_features,
-    num_classes=dataset.num_classes
+    num_classes=dataset.num_classes,
+    hidden_size=128,
+    num_layers=2
 )
 
 # 4. Train
-trainer = Trainer(model, train_loader, val_loader)
-history = trainer.fit(epochs=50)
+config = TrainerConfig(optimizer='adamw', learning_rate=1e-3, scheduler='cosine', epochs=50, patience=5)
+trainer = Trainer(model, train_loader, val_loader, config=config)
+history = trainer.fit()
 
 # 5. Evaluate
 evaluator = Evaluator(model, test_loader)
@@ -4593,12 +4596,15 @@ from pdm_framework import list_datasets, get_dataset_info
 
 # List all datasets
 print(list_datasets())
-# ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10']
+# ['Paderborn', 'HUST', 'IMS', 'CWRU', 'XJTU', 'MFPT', 'FEMTO',
+#  'MAFAULDA', 'Mendeley', 'Planetary', 'Azure',
+#  'Electric Motor Vibrations', 'Rotor Broken Bar', 'Gear Box UoC']
 
 # Get dataset info
-info = get_dataset_info('01')
+info = get_dataset_info('Paderborn')
 print(info)
-# {'name': 'Paderborn Bearing', 'description': '...', 'num_classes': 3}
+# {'name': 'Paderborn', 'description': 'Paderborn University Bearing Dataset',
+#  'domain': 'Bearings', 'num_classes': 3}
 ''', language='python')
 
     # =========================================================================
@@ -4610,14 +4616,14 @@ print(info)
         st.code('''
 from pdm_framework import PDMDataset
 
-# Basic usage
-dataset = PDMDataset('01')
+# Basic usage - load by name
+dataset = PDMDataset('Paderborn')
 
 # With custom root path
-dataset = PDMDataset('01', root_path='/path/to/datasets/01')
+dataset = PDMDataset('CWRU', root_path='/path/to/datasets/04')
 
 # With sequence length truncation
-dataset = PDMDataset('01', seq_len=256)
+dataset = PDMDataset('Paderborn', seq_len=256)
 
 # With data augmentation
 from pdm_framework.transforms import Compose, Jitter, Scale
@@ -4626,7 +4632,7 @@ transform = Compose([
     Jitter(sigma=0.03),
     Scale(sigma=0.1)
 ])
-dataset = PDMDataset('01', transform=transform)
+dataset = PDMDataset('Paderborn', transform=transform)
 ''', language='python')
 
         st.markdown("### Accessing Data")
@@ -4844,7 +4850,7 @@ augmentation = Compose([
 ])
 
 # Apply to dataset
-dataset = PDMDataset('01', transform=augmentation)
+dataset = PDMDataset('Paderborn', transform=augmentation)
 ''', language='python')
 
     st.markdown("---")
