@@ -20,6 +20,8 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import torch
+import torch.multiprocessing
+torch.multiprocessing.set_sharing_strategy('file_system')
 import torch.nn as nn
 from torch import optim
 from torch.utils.data import DataLoader
@@ -2481,6 +2483,8 @@ def model_training_page():
         st.session_state.training_active = False
     if 'training_history' not in st.session_state:
         st.session_state.training_history = []
+    if 'last_training_results' not in st.session_state:
+        st.session_state.last_training_results = None
 
     # Get processing config from Dataset Explorer
     processing_config = st.session_state.get('processing_config', {})
@@ -3373,6 +3377,7 @@ def model_training_page():
         args.train_epochs = params['train_epochs']
         args.d_model = params['d_model']
         args.e_layers = params['e_layers']
+        args.d_layers = params.get('d_layers', 1)
         args.d_ff = params['d_ff']
         args.n_heads = params['n_heads']
         args.dropout = params['dropout']
@@ -3388,8 +3393,10 @@ def model_training_page():
 
         # Foundation model settings
         if model_type in FOUNDATION_MODELS:
-            args.chronos_size = params.get('fm_size', 'small') if model_type == 'Chronos' else 'small'
-            args.moment_size = params.get('fm_size', 'base') if model_type == 'MOMENT' else 'base'
+            fm_size = params.get('fm_size', FOUNDATION_MODELS[model_type]['default_size'])
+            args.chronos_size = fm_size if model_type == 'Chronos' else 'small'
+            args.moment_size = fm_size if model_type == 'MOMENT' else 'base'
+            args.moirai_size = fm_size if model_type == 'Moirai' else 'small'
             args.freeze_backbone = params.get('freeze_backbone', True)
 
         # Optimizer/scheduler settings
@@ -3412,16 +3419,30 @@ def model_training_page():
         elif model_type in ['MambaSimple', 'Mamba']:
             args.expand = params.get('expand', 2)
             args.d_conv = params.get('d_conv', 4)
+        elif model_type in ['DLinear', 'MLP']:
+            args.individual = params.get('individual', 0)
 
         # Store processing config in args for use during data loading
         args.processing_config = processing_config
+
+        # Bridge processing config to individual args for data loader
+        if processing_config:
+            norm = processing_config.get('normalization', 'standardization')
+            args.normalization_method = norm if norm != 'none' else 'standardization'
+            resample = processing_config.get('resampling', 'none')
+            if resample and resample != 'none':
+                args.resampling_method = resample
+                args.target_length = int(args.seq_len * processing_config.get('resample_factor', 1.0))
+            else:
+                args.resampling_method = None
+                args.target_length = None
 
         status_text.info(f"Initializing {model_type} training...")
 
         try:
             # Import and run training
             from exp.exp_classification import Exp_Classification
-            from exp.exp_early_failure import Exp_Early_Failure
+            from exp.exp_early_failure import Exp_EarlyFailure
             from models import Autoformer, Transformer, TimesNet, Nonstationary_Transformer, DLinear, FEDformer, \
                 Informer, LightTS, Reformer, ETSformer, Pyraformer, PatchTST, MICN, Crossformer, FiLM, iTransformer, \
                 Koopa, TiDE, FreTS, TimeMixer, TSMixer, SegRNN, MambaSimple, TemporalFusionTransformer, SCINet, PAttn, TimeXer, \
@@ -3490,7 +3511,7 @@ def model_training_page():
 
             # Select experiment class based on task type
             if args.task_name == 'early_failure':
-                experiment = Exp_Early_Failure(args)
+                experiment = Exp_EarlyFailure(args)
             else:
                 experiment = Exp_Classification(args)
 
@@ -3502,9 +3523,8 @@ def model_training_page():
                 return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
             try:
-                # Build model to get parameter count
-                model_instance = experiment._build_model()
-                param_count = count_parameters(model_instance)
+                # Use the model already built during __init__
+                param_count = count_parameters(experiment.model)
                 if param_count >= 1e6:
                     param_str = f"{param_count/1e6:.2f}M"
                 elif param_count >= 1e3:
@@ -3525,9 +3545,53 @@ def model_training_page():
             progress_bar.progress(0.15, text="Starting training loop...")
             status_text.success("Ready! Training started...")
 
+            # Track epoch history for live learning curves
+            train_loss_history = []
+            val_loss_history = []
+            train_acc_history = []
+            val_acc_history = []
+
+            def on_epoch(epoch, total_epochs, train_loss, train_acc, val_loss, val_acc):
+                """Callback to update Streamlit UI after each epoch."""
+                # Update progress bar (map epoch progress to 0.15 - 0.85 range)
+                frac = 0.15 + 0.70 * (epoch + 1) / total_epochs
+                progress_bar.progress(frac, text=f"Epoch {epoch + 1}/{total_epochs}")
+
+                # Update metric displays
+                epoch_metric.metric("Epoch", f"{epoch + 1} / {total_epochs}")
+                loss_metric.metric("Train Loss", f"{train_loss:.4f}")
+                acc_metric.metric("Train Acc", f"{train_acc:.2%}")
+                val_loss_metric.metric("Val Loss", f"{val_loss:.4f}")
+                val_acc_metric.metric("Val Acc", f"{val_acc:.2%}")
+
+                # Accumulate history
+                train_loss_history.append(train_loss)
+                val_loss_history.append(val_loss)
+                train_acc_history.append(train_acc)
+                val_acc_history.append(val_acc)
+
+                # Update live learning curves
+                fig = make_subplots(rows=1, cols=2, subplot_titles=("Loss", "Accuracy"))
+                fig.add_trace(
+                    go.Scatter(y=train_loss_history, name='Train Loss', line=dict(color='#636EFA')),
+                    row=1, col=1)
+                fig.add_trace(
+                    go.Scatter(y=val_loss_history, name='Val Loss', line=dict(color='#EF553B')),
+                    row=1, col=1)
+                fig.add_trace(
+                    go.Scatter(y=train_acc_history, name='Train Acc', line=dict(color='#636EFA')),
+                    row=1, col=2)
+                fig.add_trace(
+                    go.Scatter(y=val_acc_history, name='Val Acc', line=dict(color='#EF553B')),
+                    row=1, col=2)
+                fig.update_layout(height=300, showlegend=True, margin=dict(t=30, b=20))
+                fig.update_xaxes(title_text="Epoch", row=1, col=1)
+                fig.update_xaxes(title_text="Epoch", row=1, col=2)
+                curves_placeholder.plotly_chart(fig, use_container_width=True)
+
             # Run training
             training_start = time.time()
-            model = experiment.train()
+            model = experiment.train(epoch_callback=on_epoch)
 
             progress_bar.progress(0.9, text="Running final evaluation...")
             experiment.test(load_model=True)
@@ -3536,19 +3600,16 @@ def model_training_page():
             st.session_state.training_active = False
             progress_bar.progress(1.0, text="Complete!")
 
-            # Display final results
-            st.success(f"Training completed in {training_time:.1f}s")
+            # Store results in session state so they persist across reruns
+            if task_type == 'early_failure':
+                result_file = f'./results/{dataset_folder}/{model_type}_early_failure_{failure_mode}/result_early_failure.txt'
+            else:
+                result_file = f'./results/{dataset_folder}/{model_type}/result_classification.txt'
 
-            st.markdown("---")
-            st.subheader("Final Results")
-
-            # Load and display results
-            result_file = f'./results/{dataset_folder}/{model_type}/result_classification.txt'
+            metrics = {}
             if os.path.exists(result_file):
                 with open(result_file, 'r') as f:
                     results_text = f.read()
-
-                metrics = {}
                 for line in results_text.split('\n'):
                     if ':' in line:
                         key, val = line.split(':', 1)
@@ -3557,90 +3618,34 @@ def model_training_page():
                         except:
                             continue
 
-                # Large metrics display
-                result_cols = st.columns(4)
-                with result_cols[0]:
-                    acc_val = metrics.get('accuracy', 0)
-                    st.metric("Accuracy", f"{acc_val:.2%}", delta=None)
-                with result_cols[1]:
-                    f1_val = metrics.get('f1_weighted', metrics.get('f1_macro', 0))
-                    st.metric("F1 Score", f"{f1_val:.4f}")
-                with result_cols[2]:
-                    prec_val = metrics.get('precision', 0)
-                    st.metric("Precision", f"{prec_val:.4f}" if prec_val else "-")
-                with result_cols[3]:
-                    recall_val = metrics.get('recall', 0)
-                    st.metric("Recall", f"{recall_val:.4f}" if recall_val else "-")
+            f1_val = metrics.get('f1_weighted', metrics.get('f1_macro', 0))
 
-                # Additional metrics
-                with st.expander("All Metrics", expanded=False):
-                    metrics_df = pd.DataFrame([
-                        {"Metric": k.title().replace('_', ' '), "Value": f"{v:.4f}"}
-                        for k, v in metrics.items()
-                    ])
-                    st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+            st.session_state.last_training_results = {
+                'metrics': metrics,
+                'model': model_type,
+                'dataset': dataset_name,
+                'dataset_folder': dataset_folder,
+                'task_type': task_type,
+                'failure_mode': failure_mode,
+                'training_time': training_time,
+                'timestamp': datetime.now().isoformat(),
+                'curves': {
+                    'train_loss': list(train_loss_history),
+                    'val_loss': list(val_loss_history),
+                    'train_acc': list(train_acc_history),
+                    'val_acc': list(val_acc_history),
+                },
+            }
 
-                # Store in training history
-                st.session_state.training_history.append({
-                    'model': model_type,
-                    'dataset': dataset_name,  # Use display name
-                    'accuracy': metrics.get('accuracy', 0),
-                    'f1': f1_val,
-                    'time': training_time,
-                    'timestamp': datetime.now().isoformat()
-                })
-
-                # Learning curves visualization
-                st.markdown("---")
-                st.subheader("Training Analysis")
-
-                # Try to load training logs for curves
-                log_file = f'./results/{dataset_folder}/{model_type}/training_log.json'
-                if os.path.exists(log_file):
-                    with open(log_file, 'r') as f:
-                        training_log = json.load(f)
-
-                    # Plot learning curves
-                    if 'train_loss' in training_log and 'val_loss' in training_log:
-                        fig = make_subplots(rows=1, cols=2, subplot_titles=("Loss", "Accuracy"))
-
-                        fig.add_trace(
-                            go.Scatter(y=training_log['train_loss'], name='Train Loss', line=dict(color='blue')),
-                            row=1, col=1
-                        )
-                        fig.add_trace(
-                            go.Scatter(y=training_log['val_loss'], name='Val Loss', line=dict(color='orange')),
-                            row=1, col=1
-                        )
-
-                        if 'train_acc' in training_log:
-                            fig.add_trace(
-                                go.Scatter(y=training_log['train_acc'], name='Train Acc', line=dict(color='blue')),
-                                row=1, col=2
-                            )
-                        if 'val_acc' in training_log:
-                            fig.add_trace(
-                                go.Scatter(y=training_log['val_acc'], name='Val Acc', line=dict(color='orange')),
-                                row=1, col=2
-                            )
-
-                        fig.update_layout(height=350, showlegend=True)
-                        curves_placeholder.plotly_chart(fig, use_container_width=True)
-
-                # Confusion matrix if available
-                cm_file = f'./results/{dataset_folder}/{model_type}/confusion_matrix.npy'
-                if os.path.exists(cm_file):
-                    cm = np.load(cm_file)
-                    fig_cm = px.imshow(
-                        cm,
-                        labels=dict(x="Predicted", y="True", color="Count"),
-                        color_continuous_scale='Blues',
-                        title="Confusion Matrix"
-                    )
-                    fig_cm.update_layout(height=400)
-                    st.plotly_chart(fig_cm, use_container_width=True)
-            else:
-                st.warning("Results file not found. Training may not have saved results properly.")
+            # Store in training history
+            st.session_state.training_history.append({
+                'model': model_type,
+                'dataset': dataset_name,
+                'accuracy': metrics.get('accuracy', 0),
+                'f1': f1_val,
+                'time': training_time,
+                'timestamp': datetime.now().isoformat()
+            })
 
         except Exception as e:
             st.session_state.training_active = False
@@ -3652,6 +3657,93 @@ def model_training_page():
         st.session_state.training_active = False
         tracker = get_tracker()
         tracker.request_stop()
+
+    # Display last training results (persists across reruns)
+    if st.session_state.last_training_results is not None:
+        res = st.session_state.last_training_results
+        metrics = res['metrics']
+
+        st.markdown("---")
+        st.subheader("Latest Training Results")
+        st.success(f"**{res['model']}** on **{res['dataset']}** — completed in {res['training_time']:.1f}s")
+
+        if metrics:
+            # Main metrics display
+            result_cols = st.columns(4)
+            with result_cols[0]:
+                acc_val = metrics.get('accuracy', 0)
+                st.metric("Accuracy", f"{acc_val:.2%}")
+            with result_cols[1]:
+                f1_val = metrics.get('f1_weighted', metrics.get('f1_macro', 0))
+                st.metric("F1 Score", f"{f1_val:.4f}")
+            with result_cols[2]:
+                ece_val = metrics.get('ece', None)
+                st.metric("ECE", f"{ece_val:.4f}" if ece_val is not None else "-")
+            with result_cols[3]:
+                nll_val = metrics.get('nll', None)
+                st.metric("NLL", f"{nll_val:.4f}" if nll_val is not None else "-")
+
+            # All metrics expander
+            with st.expander("All Metrics", expanded=False):
+                # Filter to only show actual metrics (exclude args that parsed as floats)
+                metric_keys = {'accuracy', 'f1_micro', 'f1_macro', 'f1_weighted', 'ece', 'nll', 'brier',
+                               'precision', 'recall', 'rmse', 'mae', 'mape', 'r2', 'avg_auc',
+                               'nasa_score', 'concordance_index', 'sensitivity', 'specificity',
+                               'false_alarm_rate', 'detection_rate', 'auc_roc', 'avg_precision'}
+                display_metrics = {k: v for k, v in metrics.items() if k in metric_keys}
+                if display_metrics:
+                    metrics_df = pd.DataFrame([
+                        {"Metric": k.replace('_', ' ').title(), "Value": f"{v:.4f}"}
+                        for k, v in display_metrics.items()
+                    ])
+                    st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+                else:
+                    metrics_df = pd.DataFrame([
+                        {"Metric": k.replace('_', ' ').title(), "Value": f"{v:.4f}"}
+                        for k, v in metrics.items()
+                    ])
+                    st.dataframe(metrics_df, use_container_width=True, hide_index=True)
+
+            # Learning curves from session state
+            curves = res.get('curves', {})
+            if curves.get('train_loss') and curves.get('val_loss'):
+                st.markdown("#### Training & Validation Curves")
+                fig = make_subplots(rows=1, cols=2, subplot_titles=("Loss", "Accuracy"))
+                epochs_x = list(range(1, len(curves['train_loss']) + 1))
+
+                fig.add_trace(
+                    go.Scatter(x=epochs_x, y=curves['train_loss'], name='Train Loss',
+                               line=dict(color='#636EFA', width=2)),
+                    row=1, col=1)
+                fig.add_trace(
+                    go.Scatter(x=epochs_x, y=curves['val_loss'], name='Val Loss',
+                               line=dict(color='#EF553B', width=2)),
+                    row=1, col=1)
+
+                if curves.get('train_acc'):
+                    fig.add_trace(
+                        go.Scatter(x=epochs_x, y=curves['train_acc'], name='Train Acc',
+                                   line=dict(color='#636EFA', width=2)),
+                        row=1, col=2)
+                if curves.get('val_acc'):
+                    fig.add_trace(
+                        go.Scatter(x=epochs_x, y=curves['val_acc'], name='Val Acc',
+                                   line=dict(color='#EF553B', width=2)),
+                        row=1, col=2)
+
+                fig.update_xaxes(title_text="Epoch", row=1, col=1)
+                fig.update_xaxes(title_text="Epoch", row=1, col=2)
+                fig.update_yaxes(title_text="Loss", row=1, col=1)
+                fig.update_yaxes(title_text="Accuracy", row=1, col=2)
+                fig.update_layout(height=400, showlegend=True)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Clear results button
+            if st.button("Clear Results", key="clear_results"):
+                st.session_state.last_training_results = None
+                st.rerun()
+        else:
+            st.warning("Results file not found. Training may not have saved results properly.")
 
     # Show experiment history
     st.divider()

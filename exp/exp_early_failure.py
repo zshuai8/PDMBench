@@ -208,8 +208,24 @@ class Exp_EarlyFailure(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        """Select optimizer."""
-        model_optim = optim.RAdam(self.model.parameters(), lr=self.args.learning_rate)
+        """Select optimizer based on args."""
+        opt_name = getattr(self.args, 'optimizer', 'RAdam').lower()
+        lr = self.args.learning_rate
+        wd = getattr(self.args, 'weight_decay', 0)
+        if opt_name == 'adamw':
+            model_optim = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adam':
+            model_optim = optim.Adam(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'sgd':
+            model_optim = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=wd)
+        elif opt_name == 'rmsprop':
+            model_optim = optim.RMSprop(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adagrad':
+            model_optim = optim.Adagrad(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adadelta':
+            model_optim = optim.Adadelta(self.model.parameters(), lr=lr, weight_decay=wd)
+        else:
+            model_optim = optim.RAdam(self.model.parameters(), lr=lr, weight_decay=wd)
         return model_optim
 
     def _select_criterion(self):
@@ -225,7 +241,7 @@ class Exp_EarlyFailure(Exp_Basic):
         else:
             return nn.MSELoss()
 
-    def train(self):
+    def train(self, epoch_callback=None):
         """Train the early failure prediction model."""
         train_data = self.train_data
         train_loader = self.train_loader
@@ -327,6 +343,17 @@ class Exp_EarlyFailure(Exp_Basic):
                 f"Metric/Test_{self._get_primary_metric_name()}": test_metrics['primary'],
                 "Time Per Epoch": epoch_time_list[-1]
             }, commit=True)
+
+            # Notify caller of epoch progress
+            if epoch_callback is not None:
+                epoch_callback(
+                    epoch=epoch,
+                    total_epochs=self.args.train_epochs,
+                    train_loss=train_loss,
+                    train_acc=train_metrics.get('accuracy', train_metrics['primary']),
+                    val_loss=val_loss,
+                    val_acc=val_metrics.get('accuracy', val_metrics['primary']),
+                )
 
             # Early stopping based on validation metric
             early_stopping(val_metrics['primary'], self.model, path)

@@ -55,8 +55,23 @@ class Exp_Classification(Exp_Basic):
         return data_set, data_loader
 
     def _select_optimizer(self):
-        model_optim = optim.RAdam(self.model.parameters(), lr=self.args.learning_rate)
-        
+        opt_name = getattr(self.args, 'optimizer', 'RAdam').lower()
+        lr = self.args.learning_rate
+        wd = getattr(self.args, 'weight_decay', 0)
+        if opt_name == 'adamw':
+            model_optim = optim.AdamW(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adam':
+            model_optim = optim.Adam(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'sgd':
+            model_optim = optim.SGD(self.model.parameters(), lr=lr, momentum=0.9, weight_decay=wd)
+        elif opt_name == 'rmsprop':
+            model_optim = optim.RMSprop(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adagrad':
+            model_optim = optim.Adagrad(self.model.parameters(), lr=lr, weight_decay=wd)
+        elif opt_name == 'adadelta':
+            model_optim = optim.Adadelta(self.model.parameters(), lr=lr, weight_decay=wd)
+        else:
+            model_optim = optim.RAdam(self.model.parameters(), lr=lr, weight_decay=wd)
         return model_optim
 
     def _select_criterion(self):
@@ -64,7 +79,7 @@ class Exp_Classification(Exp_Basic):
         
         return criterion
 
-    def train(self):
+    def train(self, epoch_callback=None):
         train_data = self.train_data
         train_loader = self.train_loader
 
@@ -116,9 +131,9 @@ class Exp_Classification(Exp_Basic):
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=4.0)
                 model_optim.step()
-            
+
             epoch_time_list.append((time.time() - start_time))
-            
+
             if len(preds) != 0:
                 preds = torch.cat(preds, 0)
                 trues = torch.cat(trues, 0)
@@ -128,7 +143,7 @@ class Exp_Classification(Exp_Basic):
                 train_accuracy = cal_accuracy(predictions, trues)
             else:
                 train_accuracy = 0.0
-            
+
             train_loss = np.average(train_loss)
             val_loss, val_accuracy = self.vali(vali_data, vali_loader, criterion)
             test_loss, test_accuracy = self.vali(test_data, test_loader, criterion)
@@ -148,7 +163,18 @@ class Exp_Classification(Exp_Basic):
                 },
                 commit=True
             )
-            
+
+            # Notify caller of epoch progress
+            if epoch_callback is not None:
+                epoch_callback(
+                    epoch=epoch,
+                    total_epochs=self.args.train_epochs,
+                    train_loss=train_loss,
+                    train_acc=train_accuracy,
+                    val_loss=val_loss,
+                    val_acc=val_accuracy,
+                )
+
             early_stopping(val_accuracy, self.model, path)
             if early_stopping.early_stop:
                 print("Current epoch: {}\n", epoch + 1)

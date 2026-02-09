@@ -272,6 +272,7 @@ class ConfigManager:
         args.expand = model_specific.get('expand', 2)
         args.d_conv = model_specific.get('d_conv', 4)
         args.patch_len = model_specific.get('patch_len', 16)
+        args.stride = model_specific.get('stride', 8)
         args.seg_len = model_specific.get('seg_len', 96)
         args.moving_avg = model_specific.get('moving_avg', 25)
         args.project_input_shape = 96
@@ -334,6 +335,15 @@ class ConfigManager:
         args.file_list = ['PdM_TRAIN.npz', 'PdM_VAL.npz', 'PdM_TEST.npz']
         args.data_path = 'PdM.csv'
 
+        # Foundation model defaults
+        args.chronos_size = 'small'
+        args.moment_size = 'base'
+        args.moirai_size = 'small'
+        args.freeze_backbone = True
+
+        # Processing config (overridden by UI)
+        args.processing_config = {}
+
         # Additional
         args.enc_in = 7
         args.dec_in = 7
@@ -341,6 +351,7 @@ class ConfigManager:
         args.use_dtw = False
         args.p_hidden_dims = [128, 128]
         args.p_hidden_layers = 2
+        args.individual = 0
 
         return args
 
